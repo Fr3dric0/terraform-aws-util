@@ -1,0 +1,109 @@
+version: 2.1
+orbs:
+  # import CircleCI's aws-cli orb
+  aws-cli: circleci/aws-cli@3.1
+  aws-ecr: circleci/aws-ecr@8.2.1
+
+jobs:
+  quality:
+    docker:
+      - image: gradle:7.3.3-jdk17
+    working_directory: ~/repo
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - v1-dependencies-{{ checksum "build.gradle.kts" }}-{{ checksum "gradle.properties" }}
+            - v1-dependencies-
+      - run:
+          name: Detekt
+          command: gradle detekt --info
+      - save_cache:
+          paths:
+            - ~/.gradle
+          key: v1-dependencies-{{ checksum "build.gradle.kts" }}-{{ checksum "gradle.properties" }}
+  aws-ecr-auth:
+    docker:
+      - image: cimg/aws:2022.06
+    steps:
+      - checkout
+      - aws-cli/setup:
+          role-arn: 'arn:aws:iam::314397620259:role/tools-pipeline-circleci'
+          role-session-name: pipeline-session
+          session-duration: "1800"
+      - run:
+          name: Log-into-AWS-ECR
+          environment:
+            AWS_REGION: us-east-1
+          command: |
+            aws sts get-caller-identity
+            aws ecr get-login-password --profile default
+
+  deploy-infrastructure:
+    docker:
+      - image: lindhagen/terraform-azure-util:1.1.4
+    working_directory: ~/repo
+    steps:
+      - checkout
+      - run:
+          command: export AWS_DEFAULT_REGION=us-east-1
+      - run:
+          name: Set docker image tag
+          command: export TF_ENV_docker_image_tag=${CIRCLE_SHA1}
+      - run:
+          name: Terraform plan Staging
+          environment:
+            # Set default region here to prevent circleci from masking us-east-1 in terraform plans
+            AWS_DEFAULT_REGION: us-east-1
+            ECR_BASE_URL: "314397620259.dkr.ecr.us-east-1.amazonaws.com"
+          command: |
+            cd terraform/staging
+            terraform init -input=false
+            terraform plan -out staging.tfapply
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
+  apply-staging:
+    docker:
+      - image: lindhagen/terraform-azure-util:1.1.4
+    working_directory: ~/repo
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Set docker image tag
+          command: export TF_ENV_docker_image_tag=${CIRCLE_SHA1}
+      - run:
+          name: Terraform staging
+          environment:
+            # Set default region here to prevent circleci from masking us-east-1 in terraform plans
+            AWS_DEFAULT_REGION: us-east-1
+            ECR_BASE_URL: "314397620259.dkr.ecr.us-east-1.amazonaws.com"
+          command: |
+            cd terraform/staging
+            terraform apply -auto-approve staging.tfapply
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
+
+workflows:
+  main:
+    jobs:
+      - aws-ecr/build-and-push-image:
+          repo: terraform-aws-util
+          tag: 'latest,$CIRCLE_SHA1'
+          push-image: true
+          skip-when-tags-exist: false
+          platform: 'linux/amd64,linux/arm64'
+          public-registry: true
+          # AWS Specific
+          context: aws
+          assume-web-identity: true
+          create-repo: true
+          region: us-east-1
+          role-arn: 'arn:aws:iam::314397620259:role/tools-pipeline-circleci'
+          role-session-name: 'pipeline-session'
+          session-duration: '1800'
