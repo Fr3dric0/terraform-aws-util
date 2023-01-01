@@ -93,7 +93,7 @@ workflows:
   main:
     jobs:
       - aws-ecr/build-and-push-image:
-          repo: terraform-aws-util
+          repo: lindhagen/terraform-aws-util
           tag: 'latest,$CIRCLE_SHA1'
           push-image: true
           skip-when-tags-exist: false
@@ -101,6 +101,7 @@ workflows:
           public-registry: true
           # AWS Specific
           context: aws
+          public-registry-alias: '${AWS_ECR_PUBLIC_REGISTRY_ALIAS}'
           assume-web-identity: true
           create-repo: true
           region: us-east-1
