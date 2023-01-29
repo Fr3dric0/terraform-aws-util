@@ -4,7 +4,7 @@ ARG TERRAFORM_VERSION="1.3.6"
 
 WORKDIR /home
 
-RUN apt-get update && apt-get install -y curl && apt-get install -y unzip
+RUN apt-get update && apt-get install -y curl && apt-get install -y unzip && apt install git -y
 
 
 RUN curl -o terraform.zip https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip && \
